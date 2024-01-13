@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "snake"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.scripts]
+run = 'snake:snake.run'
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pygame = "^2.5.2"
+
+[tool.poetry.group.dev.dependencies]
+black = "*"
+flake8 = "*"
+isort = "*"
+mypy = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
