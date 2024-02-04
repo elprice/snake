@@ -2,7 +2,7 @@ import logging
 import random
 import sys
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pygame
 from pygame.key import ScancodeWrapper
@@ -10,7 +10,6 @@ from pygame.rect import Rect
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
-# log.setLevel(logging.INFO)
 
 
 def run() -> None:
@@ -28,7 +27,6 @@ def run() -> None:
     BLACK = (0, 0, 0)
     GRAY = (127, 127, 127)
     WHITE = (255, 255, 255)
-    YELLOW = (255, 255, 0)
     CYAN = (0, 255, 255)
     MAGENTA = (255, 0, 255)
 
@@ -42,11 +40,11 @@ def run() -> None:
         pygame.K_DOWN: (0, 1),  # weird direction because of window x,y
     }
 
-    blocked: Dict[int.int] = {
-        pygame.K_RIGHT: pygame.K_LEFT,
-        pygame.K_LEFT: pygame.K_RIGHT,
-        pygame.K_UP: pygame.K_DOWN,
-        pygame.K_DOWN: pygame.K_UP,
+    blocked: Dict[Tuple[int, int], Tuple[int, int]] = {
+        (1, 0): (-1, 0),
+        (-1, 0): (1, 0),
+        (0, 1): (0, -1),
+        (0, -1): (0, 1),
     }
 
     class Segment(pygame.sprite.Sprite):
@@ -67,6 +65,7 @@ def run() -> None:
             self.size = size
             self.next: Optional[Segment | None] = None
             self.direction = controls[pygame.K_RIGHT]
+            self.next_direction = self.direction
             self.surf = pygame.Surface((size, size))
             self.surf.fill(WHITE)
             self.rect = self.surf.get_rect(x=self.size, y=self.size)
@@ -78,12 +77,14 @@ def run() -> None:
             self.next = Segment(pos_x=x, pos_y=y)
             self.next.next = curr
 
-        def update_direction(self, pressed_keys: ScancodeWrapper) -> None:
+        def update_next_direction(self, pressed_keys: ScancodeWrapper) -> None:
             for key, direction in controls.items():
-                if pressed_keys[key] and self.direction != controls[blocked[key]]:
-                    self.direction = direction
+                if pressed_keys[key]:
+                    self.next_direction = direction
 
         def update_position(self) -> None:
+            if self.next_direction != blocked[self.direction]:
+                self.direction = self.next_direction
             curr = self.next
             prev = self.rect
             while curr:
@@ -117,53 +118,36 @@ def run() -> None:
             self.surf.fill(GRAY)
             self.rect = self.surf.get_rect(x=pos_x, y=pos_y)
 
-        # def update(self) -> None:
-        #    screen.blit(self.surf, self.rect)
-
     snake = Snake()
     apple = Apple()
 
     wallsize = 20
     walls = []
 
-    wall_x = 0
-    wall_y = 0
-    while wall_x < WIDTH:
-        walls.append(Wall(pos_x=wall_x, pos_y=wall_y))
-        wall_x += wallsize
-    wall_x -= wallsize
-    wall_y += wallsize
-    while wall_y < HEIGHT:
-        walls.append(Wall(pos_x=wall_x, pos_y=wall_y))
-        wall_y += wallsize
-    wall_y -= wallsize
-    wall_x -= wallsize
-    while wall_x >= 0:
-        walls.append(Wall(pos_x=wall_x, pos_y=wall_y))
-        wall_x -= wallsize
-    wall_x += wallsize
-    wall_y -= wallsize
-    while wall_y >= wallsize:
-        walls.append(Wall(pos_x=wall_x, pos_y=wall_y))
-        wall_y -= wallsize
+    for x in range(0, WIDTH, wallsize):
+        for y in range(0, HEIGHT, wallsize):
+            if x == 0 or y == 0 or x == WIDTH - wallsize or y == HEIGHT - wallsize:
+                walls.append(Wall(pos_x=x, pos_y=y))
 
-    grows_snake = pygame.sprite.Group([apple])
-    kills_snake = pygame.sprite.Group(walls)
+    grows = pygame.sprite.Group([apple])
+    kills = pygame.sprite.Group(walls)
 
     frames = 0
     snake_update_frames = fps // 6
 
-    screen.blit(snake.surf, snake.rect)
-    screen.blit(apple.surf, apple.rect)
-    for wall in walls:
-        screen.blit(wall.surf, wall.rect)
+    # draw everything
+    sprites: List[pygame.sprite.Sprite.Sprite] = [snake, apple, *walls]
+    for sprite in sprites:
+        screen.blit(sprite.surf, sprite.rect)
 
     curr = time.time()
     while True:
         clock.tick(fps)
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+            if event.type == pygame.QUIT or (
+                event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
+            ):
                 pygame.quit()
                 sys.exit()
 
@@ -173,27 +157,28 @@ def run() -> None:
             curr = now
             snake.update_position()
 
-            if pygame.sprite.spritecollide(snake, grows_snake, False):
+            if pygame.sprite.spritecollide(snake, grows, False):
                 log.info("Ate an apple.")
                 snake.grow()
-                kills_snake.add(snake.next)
-
-                segments = [snake]
-                segment = snake.next
-                while segment:
-                    segments.append(segment)
-                    segment = segment.next
-                segment_group = pygame.sprite.Group(segments)
+                kills.add(snake.next)
+                snake.grow()
+                kills.add(snake.next)
+                snake.grow()
+                kills.add(snake.next)
+                snake.grow()
+                kills.add(snake.next)
+                snake.grow()
+                kills.add(snake.next)
 
                 while pygame.sprite.spritecollide(
-                    apple, segment_group, False
+                    apple, [*kills, snake], False
                 ):  # this could just be all non-apple sprites
                     log.info("Generated a new apple.")
                     apple.kill()
                     apple = Apple()
                     log.info(apple.rect)
-                    grows_snake.add(apple)
-            if pygame.sprite.spritecollide(snake, kills_snake, False):
+                    grows.add(apple)
+            if pygame.sprite.spritecollide(snake, kills, False):
                 sys.exit()
 
             screen.fill(BACKGROUND)
@@ -208,7 +193,7 @@ def run() -> None:
                 screen.blit(wall.surf, wall.rect)
 
         pressed_keys = pygame.key.get_pressed()
-        snake.update_direction(pressed_keys)
+        snake.update_next_direction(pressed_keys)
 
         pygame.display.flip()
         # print(frames)
