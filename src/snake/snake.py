@@ -1,8 +1,9 @@
+import copy
 import logging
 import random
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import pygame
 from pygame.key import ScancodeWrapper
@@ -28,12 +29,11 @@ def run() -> None:
     GRAY = (127, 127, 127)
     WHITE = (255, 255, 255)
     CYAN = (0, 255, 255)
-    MAGENTA = (255, 0, 255)
 
     BACKGROUND = BLACK
 
     # key: direction
-    controls: Dict[int, tuple] = {
+    controls: Dict[int, Tuple[int, int]] = {
         pygame.K_RIGHT: (1, 0),
         pygame.K_LEFT: (-1, 0),
         pygame.K_UP: (0, -1),
@@ -51,31 +51,26 @@ def run() -> None:
         def __init__(self, pos_x: int, pos_y: int, segment_size: int = 20) -> None:
             super(Segment, self).__init__()
             self.segment_size = segment_size
-            self.next: Optional[Segment | None] = None
             self.surf = pygame.Surface((segment_size, segment_size))
-            self.surf.fill(MAGENTA)
+            self.surf.fill(WHITE)
             self.rect = self.surf.get_rect(
                 x=pos_x,
                 y=pos_y,
             )
 
     class Snake(pygame.sprite.Sprite):
-        def __init__(self, size: int = 20) -> None:
+        def __init__(self) -> None:
             super(Snake, self).__init__()
-            self.size = size
-            self.next: Optional[Segment | None] = None
+            self.size = 20
             self.direction = controls[pygame.K_RIGHT]
             self.next_direction = self.direction
-            self.surf = pygame.Surface((size, size))
-            self.surf.fill(WHITE)
-            self.rect = self.surf.get_rect(x=self.size, y=self.size)
+            self.head = Segment(pos_x=self.size, pos_y=self.size)
+            self.segments: List[Segment] = [self.head]
 
         def grow(self) -> None:
-            curr = self.next
-            x = self.rect.x - (self.direction[0] * self.size)
-            y = self.rect.y - (self.direction[1] * self.size)
-            self.next = Segment(pos_x=x, pos_y=y)
-            self.next.next = curr
+            x = self.head.rect.x - (self.direction[0] * self.size)
+            y = self.head.rect.y - (self.direction[1] * self.size)
+            self.segments.insert(1, Segment(pos_x=x, pos_y=y))
 
         def update_next_direction(self, pressed_keys: ScancodeWrapper) -> None:
             for key, direction in controls.items():
@@ -85,15 +80,13 @@ def run() -> None:
         def update_position(self) -> None:
             if self.next_direction != blocked[self.direction]:
                 self.direction = self.next_direction
-            curr = self.next
-            prev = self.rect
-            while curr:
-                temp = curr.rect
-                curr.rect = curr.surf.get_rect(x=prev.x, y=prev.y)
-                prev = temp
-                curr = curr.next
 
-            self.rect.move_ip(*[self.size * mod for mod in self.direction])
+            for i in range(len(self.segments) - 1, 0, -1):
+                prev = self.segments[i - 1].rect
+                curr = self.segments[i].rect
+                curr.x, curr.y = prev.x, prev.y
+
+            self.head.rect.move_ip(*[self.size * mod for mod in self.direction])
 
     class Apple(pygame.sprite.Sprite):
         def __init__(self, size: int = 20) -> None:
@@ -129,14 +122,11 @@ def run() -> None:
             if x == 0 or y == 0 or x == WIDTH - wallsize or y == HEIGHT - wallsize:
                 walls.append(Wall(pos_x=x, pos_y=y))
 
-    grows = pygame.sprite.Group([apple])
-    kills = pygame.sprite.Group(walls)
-
     frames = 0
     snake_update_frames = fps // 6
 
     # draw everything
-    sprites: List[pygame.sprite.Sprite.Sprite] = [snake, apple, *walls]
+    sprites: List[pygame.sprite.Sprite.Sprite] = [*snake.segments, apple, *walls]
     for sprite in sprites:
         screen.blit(sprite.surf, sprite.rect)
 
@@ -157,37 +147,25 @@ def run() -> None:
             curr = now
             snake.update_position()
 
-            if pygame.sprite.spritecollide(snake, grows, False):
+            if pygame.sprite.spritecollide(snake.head, [apple], False):
                 log.info("Ate an apple.")
                 snake.grow()
-                kills.add(snake.next)
-                snake.grow()
-                kills.add(snake.next)
-                snake.grow()
-                kills.add(snake.next)
-                snake.grow()
-                kills.add(snake.next)
-                snake.grow()
-                kills.add(snake.next)
-
                 while pygame.sprite.spritecollide(
-                    apple, [*kills, snake], False
-                ):  # this could just be all non-apple sprites
+                    apple, [*walls, *snake.segments], False
+                ):
                     log.info("Generated a new apple.")
                     apple.kill()
                     apple = Apple()
-                    log.info(apple.rect)
-                    grows.add(apple)
-            if pygame.sprite.spritecollide(snake, kills, False):
+
+            if pygame.sprite.spritecollide(
+                snake.head, [*walls, *snake.segments[1:]], False
+            ):
+                print([segment.rect for segment in snake.segments])
                 sys.exit()
 
             screen.fill(BACKGROUND)
-            screen.blit(snake.surf, snake.rect)
-            segment = snake.next
-            while segment:
-                # print(f"drawing {segment.rect}")
+            for segment in snake.segments:
                 screen.blit(segment.surf, segment.rect)
-                segment = segment.next
             screen.blit(apple.surf, apple.rect)
             for wall in walls:
                 screen.blit(wall.surf, wall.rect)
